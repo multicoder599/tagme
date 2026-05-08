@@ -14,7 +14,7 @@ const generateAdCopy = async (product, audience, tone) => {
         const prompt = `Write a short, highly engaging advertisement for ${product} targeting ${audience}. The tone should be ${tone}. Keep it under 3 sentences.`;
 
         // We use native 'fetch' to completely bypass the buggy SDK
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
         
         const response = await fetch(url, {
             method: 'POST',
