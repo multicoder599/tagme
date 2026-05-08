@@ -5,7 +5,7 @@ require('dotenv').config();
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // We use gemini-1.5-flash as it is blazing fast and perfect for text generation
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
 // ---------------------------------------------------------
 // Function 1: Generate Ad Copy
