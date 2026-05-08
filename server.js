@@ -29,10 +29,10 @@ app.set('trust proxy', 1);
 
 // Simplify this block to avoid double headers
 app.use(cors({
-    origin: 'https://tagme.buzz', // Use a single string, not an array
+    origin: 'https://tagme.buzz', 
+    credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true
+    allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(helmet({ crossOriginResourcePolicy: false }));
