@@ -35,7 +35,11 @@ app.use(cors({
     credentials: true
 }));
 app.use(express.json()); // Parses incoming JSON
-app.use(mongoSanitize()); // Prevents NoSQL Injection attacks
+app.use(
+    mongoSanitize({
+      replaceWith: '_',
+    })
+  ); // Prevents NoSQL Injection attacks
 app.use(morgan('dev')); // Logs API requests to your terminal
 
 // Rate Limiting (Protects against brute force and DDoS)
