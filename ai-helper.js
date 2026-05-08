@@ -1,28 +1,38 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
-
-// 1. Verify the API Key is actually loaded
-if (!process.env.GEMINI_API_KEY) {
-    console.error("🚨 CRITICAL: GEMINI_API_KEY is missing from your .env file!");
-}
-
-// 2. Initialize Gemini
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const generateAdCopy = async (product, audience, tone) => {
     try {
         console.log(`🤖 AI Request started for Product: ${product}`);
-
-        // Using the most stable standard model. 
-        // If this fails, we will change it to 'gemini-pro'
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        
+        // .trim() is the magic word here. It destroys any hidden spaces from your .env file!
+        const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : null;
+        
+        if (!apiKey) {
+            throw new Error("API Key is missing from .env");
+        }
 
         const prompt = `Write a short, highly engaging advertisement for ${product} targeting ${audience}. The tone should be ${tone}. Keep it under 3 sentences.`;
+
+        // We use native 'fetch' to completely bypass the buggy SDK
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
         
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
-        
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }]
+            })
+        });
+
+        const data = await response.json();
+
+        // If Google rejects it, this will print the EXACT reason why
+        if (!response.ok) {
+            console.error("❌ Google API Error details:", JSON.stringify(data, null, 2));
+            throw new Error(data.error?.message || "Google API returned an error");
+        }
+
+        const text = data.candidates[0].content.parts[0].text;
         console.log("✅ AI Generation Successful!");
         return text;
 
