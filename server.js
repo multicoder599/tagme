@@ -22,22 +22,16 @@ const app = express();
 connectDB();
 
 // ==========================================
+// ==========================================
 // 1. GLOBAL MIDDLEWARE & SECURITY
 // ==========================================
-// IMPORTANT: CORS must be at the very top to fix the Preflight OPTIONS error!
 app.use(cors({
-    origin: [
-        'https://tagme.buzz', 
-        'https://www.tagme.buzz',
-        'http://localhost:5000' // Useful for local testing
-    ],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    origin: '*', 
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true
 }));
-app.options('/(.*)', cors()); // Explicitly answer CORS preflight requests
 
-app.use(helmet({ crossOriginResourcePolicy: false })); // Secures HTTP headers 
+app.use(helmet({ crossOriginResourcePolicy: false })); // Secures HTTP headers
 app.use(express.json()); // Parses incoming JSON
 
 // Custom Sanitizer to prevent NoSQL Injection
