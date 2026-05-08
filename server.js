@@ -25,21 +25,18 @@ connectDB();
 // ==========================================
 // 1. GLOBAL MIDDLEWARE & SECURITY
 // ==========================================
-// FIX: Explicitly name domains because 'credentials: true' forbids '*'
+app.set('trust proxy', 1); 
+
+// Simplify this block to avoid double headers
 app.use(cors({
-    origin: [
-        'https://tagme.buzz',
-        'https://www.tagme.buzz',
-        'http://localhost:5000',
-        'http://127.0.0.1:5000'
-    ], 
+    origin: 'https://tagme.buzz', // Use a single string, not an array
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
 }));
 
-app.use(helmet({ crossOriginResourcePolicy: false })); // Secures HTTP headers
-app.use(express.json()); // Parses incoming JSON
+app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(express.json());
 
 // Custom Sanitizer to prevent NoSQL Injection
 app.use((req, res, next) => {
