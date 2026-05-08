@@ -35,7 +35,7 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
 }));
-app.options('*', cors()); // Explicitly answer CORS preflight requests
+app.options('/(.*)', cors()); // Explicitly answer CORS preflight requests
 
 app.use(helmet({ crossOriginResourcePolicy: false })); // Secures HTTP headers 
 app.use(express.json()); // Parses incoming JSON
