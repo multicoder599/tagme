@@ -19,15 +19,12 @@ dotenv.config();
 
 // Initialize App & Database
 const app = express();
-app.set('trust proxy', 1); // Add this line right here!
+app.set('trust proxy', 1);
 connectDB();
 
 // ==========================================
 // 1. GLOBAL MIDDLEWARE & SECURITY
 // ==========================================
-app.set('trust proxy', 1); 
-
-// Simplify this block to avoid double headers
 app.use(cors({
     origin: 'https://tagme.buzz', 
     credentials: true,
@@ -38,16 +35,13 @@ app.use(cors({
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(express.json());
 
-// Custom Sanitizer to prevent NoSQL Injection
+// Custom Sanitizer
 app.use((req, res, next) => {
     const sanitize = (obj) => {
         if (obj instanceof Object) {
             for (let key in obj) {
-                if (key.startsWith('$')) {
-                    delete obj[key];
-                } else {
-                    sanitize(obj[key]);
-                }
+                if (key.startsWith('$')) delete obj[key];
+                else sanitize(obj[key]);
             }
         }
     };
@@ -57,29 +51,24 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(morgan('dev')); // Logs API requests to your terminal
+app.use(morgan('dev'));
 
-// Rate Limiting (Protects against brute force and DDoS)
 const apiLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
+    windowMs: 15 * 60 * 1000,
     max: 300, 
     message: { success: false, message: 'Too many requests, please try again later.' }
 });
 app.use('/api', apiLimiter);
 
-// Serve static files (Allows frontend to view uploaded images)
+// Serve static uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ==========================================
 // 2. FILE UPLOAD CONFIG (MULTER)
 // ==========================================
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, 'uploads/'); 
-    },
-    filename: (req, file, cb) => {
-        cb(null, `${Date.now()}-${file.originalname.replace(/\s/g, '-')}`);
-    }
+    destination: (req, file, cb) => cb(null, 'uploads/'),
+    filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname.replace(/\s/g, '-')}`)
 });
 const upload = multer({ 
     storage, 
@@ -87,7 +76,7 @@ const upload = multer({
 });
 
 // ==========================================
-// 3. MONGOOSE MODELS (The Data Layer)
+// 3. MONGOOSE MODELS (Upgraded)
 // ==========================================
 
 // --- USER ---
@@ -96,8 +85,16 @@ const UserSchema = new mongoose.Schema({
     lastName: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    avatar: { type: String, default: 'https://i.pravatar.cc/150' },
+    avatar: { type: String, default: null },
     bio: { type: String, default: '' },
+    // Fix #8: 24hr Free Logic Tracker
+    firstPostDate: { type: Date, default: null },
+    // Fix #13: Preferences Tracker
+    preferences: { 
+        alerts: { type: Boolean, default: true },
+        dms: { type: Boolean, default: true },
+        marketingNews: { type: Boolean, default: false }
+    }
 }, { timestamps: true });
 const User = mongoose.model('User', UserSchema);
 
@@ -106,15 +103,25 @@ const CampaignSchema = new mongoose.Schema({
     author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     title: { type: String, required: true },
     description: { type: String, required: true },
-    media: { type: String, default: null },
-    location: { type: String, default: 'ea' },
+    // Fix #8: Multiple Images
+    media: { type: [String], default: [] },
+    location: { type: String, default: 'all-kenya' },
     budget: { type: Number, default: 0 },
-    likes: { type: Number, default: 0 },
-    comments: { type: Number, default: 0 }
+    // Fix #11: Scheduling & Status
+    status: { type: String, enum: ['published', 'draft', 'scheduled'], default: 'published' },
+    scheduledFor: { type: Date, default: null },
+    // Fix #6: Analytics Tracking
+    views: { type: Number, default: 0 },
+    likes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    comments: [{ 
+        user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        text: String,
+        date: { type: Date, default: Date.now }
+    }]
 }, { timestamps: true });
 const Campaign = mongoose.model('Campaign', CampaignSchema);
 
-// --- MESSAGES (CHAT) ---
+// --- MESSAGES ---
 const MessageSchema = new mongoose.Schema({
     sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     recipient: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -128,17 +135,17 @@ const NotificationSchema = new mongoose.Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     title: { type: String, required: true },
     body: { type: String, required: true },
-    isRead: { type: Boolean, default: false },
-    link: { type: String, default: '/' }
+    isRead: { type: Boolean, default: false }
 }, { timestamps: true });
 const Notification = mongoose.model('Notification', NotificationSchema);
 
-// --- ORDERS & BILLING ---
+// --- ORDERS (M-PESA Tracking) ---
 const OrderSchema = new mongoose.Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     campaign: { type: mongoose.Schema.Types.ObjectId, ref: 'Campaign' },
     amount: { type: Number, required: true },
-    status: { type: String, enum: ['pending', 'completed', 'failed'], default: 'pending' },
+    isFree: { type: Boolean, default: false }, // Tracks the 24hr promo
+    status: { type: String, enum: ['pending', 'completed', 'failed'], default: 'completed' },
     paymentMethod: { type: String, default: 'M-PESA' } 
 }, { timestamps: true });
 const Order = mongoose.model('Order', OrderSchema);
@@ -146,7 +153,10 @@ const Order = mongoose.model('Order', OrderSchema);
 // --- FEEDBACK ---
 const FeedbackSchema = new mongoose.Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    message: { type: String, required: true }
+    type: { type: String, required: true },
+    subject: { type: String, required: true },
+    description: { type: String, required: true },
+    screenshot: { type: String, default: null }
 }, { timestamps: true });
 const Feedback = mongoose.model('Feedback', FeedbackSchema);
 
@@ -172,7 +182,7 @@ const protect = (req, res, next) => {
 // 5. API ROUTES
 // ==========================================
 
-// --- A. AUTHENTICATION ---
+// --- AUTHENTICATION ---
 app.post('/api/auth/register', async (req, res) => {
     try {
         const { firstName, lastName, email, password } = req.body;
@@ -183,7 +193,6 @@ app.post('/api/auth/register', async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, salt);
 
         const user = await User.create({ firstName, lastName, email, password: hashedPassword });
-        
         await Notification.create({ user: user._id, title: 'Welcome to TagME', body: 'Set up your profile to start creating campaigns!' });
 
         const token = jwt.sign({ id: user._id, email: user.email }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
@@ -208,7 +217,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// --- B. PROFILE ---
+// --- PROFILE & SETTINGS (Fix #13 & #14) ---
 app.put('/api/profile', protect, upload.single('avatar'), async (req, res) => {
     try {
         const updates = { bio: req.body.bio, firstName: req.body.firstName, lastName: req.body.lastName };
@@ -221,32 +230,144 @@ app.put('/api/profile', protect, upload.single('avatar'), async (req, res) => {
     }
 });
 
-// --- C. AI STUDIO ---
+app.put('/api/users/preferences', protect, async (req, res) => {
+    try {
+        // Find user, merge existing preferences with new toggles
+        const user = await User.findById(req.user.id);
+        const newPrefs = { ...user.preferences, ...req.body };
+        await User.findByIdAndUpdate(req.user.id, { preferences: newPrefs });
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Failed to update preferences' });
+    }
+});
+
+app.put('/api/users/password', protect, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!(await bcrypt.compare(req.body.currentPassword, user.password))) {
+            return res.status(400).json({ success: false, message: 'Current password is incorrect' });
+        }
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(req.body.newPassword, salt);
+        await user.save();
+        res.json({ success: true, message: 'Password updated securely' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Server error updating password' });
+    }
+});
+
+app.delete('/api/users/delete', protect, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!(await bcrypt.compare(req.body.password, user.password))) {
+            return res.status(400).json({ success: false, message: 'Authentication failed. Incorrect password.' });
+        }
+        await User.findByIdAndDelete(req.user.id);
+        // Cascading deletes (campaigns/orders) could go here in production
+        res.json({ success: true, message: 'Account deleted' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Server error deleting account' });
+    }
+});
+
+app.post('/api/users/feedback', protect, upload.single('screenshot'), async (req, res) => {
+    try {
+        const mediaPath = req.file ? `/uploads/${req.file.filename}` : null;
+        await Feedback.create({
+            user: req.user.id,
+            type: req.body.type,
+            subject: req.body.subject,
+            description: req.body.description,
+            screenshot: mediaPath
+        });
+        res.status(201).json({ success: true, message: 'Feedback submitted' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Failed to submit feedback' });
+    }
+});
+
+// --- AI STUDIO (Fix #10) ---
 app.post('/api/ai/generate', protect, async (req, res) => {
     try {
-        const { product, audience, tone } = req.body;
-        const adCopy = await aiHelper.generateAdCopy(product, audience, tone);
+        const { product, audience, tone, ageRange, gender } = req.body;
+        const adCopy = await aiHelper.generateAdCopy(product, audience, tone, ageRange, gender);
         res.json({ success: true, result: adCopy });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 });
 
-// --- D. CAMPAIGNS ---
-app.post('/api/campaigns', protect, upload.single('media'), async (req, res) => {
+// --- CAMPAIGNS & SCHEDULING (Fix #8 & #11) ---
+
+// Helper function: Calculate 24hr Free Billing Logic
+const processBilling = async (userId, budget, campaignId) => {
+    const user = await User.findById(userId);
+    const now = new Date();
+    let isFree = false;
+
+    if (!user.firstPostDate) {
+        user.firstPostDate = now;
+        await user.save();
+        isFree = true;
+    } else {
+        const timeDiffHours = Math.abs(now - user.firstPostDate) / 36e5;
+        if (timeDiffHours <= 24) isFree = true;
+    }
+
+    await Order.create({
+        user: userId,
+        campaign: campaignId,
+        amount: isFree ? 0 : budget,
+        isFree: isFree,
+        status: 'completed',
+        paymentMethod: 'M-PESA'
+    });
+};
+
+app.post('/api/campaigns', protect, upload.array('media', 4), async (req, res) => {
     try {
-        const mediaPath = req.file ? `/uploads/${req.file.filename}` : null;
+        const mediaPaths = req.files ? req.files.map(file => `/uploads/${file.filename}`) : [];
+        
         const newCampaign = await Campaign.create({
             author: req.user.id,
             title: req.body.title,
             description: req.body.description,
             location: req.body.location,
             budget: req.body.budget,
-            media: mediaPath
+            media: mediaPaths,
+            status: 'published'
         });
+
+        await processBilling(req.user.id, req.body.budget, newCampaign._id);
         res.status(201).json({ success: true, message: 'Campaign Created', campaign: newCampaign });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Failed to create campaign' });
+    }
+});
+
+app.post('/api/campaigns/schedule', protect, upload.array('media', 4), async (req, res) => {
+    try {
+        const mediaPaths = req.files ? req.files.map(file => `/uploads/${file.filename}`) : [];
+        
+        // Combine date and time into a single Date object
+        const scheduledDateStr = `${req.body.scheduleDate}T${req.body.scheduleTime}`;
+        
+        const newCampaign = await Campaign.create({
+            author: req.user.id,
+            title: req.body.title,
+            description: req.body.description,
+            location: req.body.location,
+            budget: req.body.budget,
+            media: mediaPaths,
+            status: 'scheduled',
+            scheduledFor: new Date(scheduledDateStr)
+        });
+
+        await processBilling(req.user.id, req.body.budget, newCampaign._id);
+        res.status(201).json({ success: true, message: 'Campaign Scheduled', campaign: newCampaign });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Failed to schedule campaign' });
     }
 });
 
@@ -261,7 +382,7 @@ app.get('/api/campaigns', protect, async (req, res) => {
     }
 });
 
-// --- E. MESSAGING (CHAT) ---
+// --- MESSAGING ---
 app.get('/api/chat', protect, async (req, res) => {
     try {
         const messages = await Message.find({
@@ -291,48 +412,13 @@ app.post('/api/chat/send', protect, async (req, res) => {
     }
 });
 
-// --- F. NOTIFICATIONS ---
-app.get('/api/notifications', protect, async (req, res) => {
-    try {
-        const notifications = await Notification.find({ user: req.user.id }).sort({ createdAt: -1 });
-        res.json({ success: true, notifications });
-    } catch (error) {
-        res.status(500).json({ success: false, message: 'Failed to fetch notifications' });
-    }
-});
-
-// --- G. PLANNER, ORDERS & BILLING ---
+// --- ORDERS ---
 app.get('/api/orders', protect, async (req, res) => {
     try {
-        const orders = await Order.find({ user: req.user.id }).populate('campaign', 'title');
+        const orders = await Order.find({ user: req.user.id }).populate('campaign', 'title').sort({ createdAt: -1 });
         res.json({ success: true, orders });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Failed to fetch orders' });
-    }
-});
-
-app.get('/api/planner', protect, async (req, res) => {
-    res.json({ success: true, message: 'Planner module active', events: [] });
-});
-
-app.get('/api/billing', protect, async (req, res) => {
-    res.json({ success: true, balance: 0.00, currency: 'USD' });
-});
-
-// --- H. SETTINGS & FEEDBACK ---
-app.put('/api/settings', protect, async (req, res) => {
-    res.json({ success: true, message: 'Account settings updated securely' });
-});
-
-app.post('/api/feedback', protect, async (req, res) => {
-    try {
-        await Feedback.create({
-            user: req.user.id,
-            message: req.body.message
-        });
-        res.status(201).json({ success: true, message: 'Feedback submitted to admin team' });
-    } catch (error) {
-        res.status(500).json({ success: false, message: 'Failed to submit feedback' });
     }
 });
 
