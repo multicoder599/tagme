@@ -2,7 +2,6 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
-const mongoSanitize = require('express-mongo-sanitize');
 const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
 const multer = require('multer');
@@ -25,7 +24,7 @@ connectDB();
 // ==========================================
 // 1. GLOBAL MIDDLEWARE & SECURITY
 // ==========================================
-app.use(helmet({ crossOriginResourcePolicy: false })); // Secures HTTP headers (disabled cross-origin for local media testing)
+app.use(helmet({ crossOriginResourcePolicy: false })); // Secures HTTP headers 
 app.use(cors({
     origin: [
         'https://tagme.buzz', 
@@ -35,11 +34,26 @@ app.use(cors({
     credentials: true
 }));
 app.use(express.json()); // Parses incoming JSON
-app.use(
-    mongoSanitize({
-      replaceWith: '_',
-    })
-  ); // Prevents NoSQL Injection attacks
+
+// Custom Sanitizer to prevent NoSQL Injection (Replaces the buggy express-mongo-sanitize)
+app.use((req, res, next) => {
+    const sanitize = (obj) => {
+        if (obj instanceof Object) {
+            for (let key in obj) {
+                if (key.startsWith('$')) {
+                    delete obj[key];
+                } else {
+                    sanitize(obj[key]);
+                }
+            }
+        }
+    };
+    if (req.body) sanitize(req.body);
+    if (req.query) sanitize(req.query);
+    if (req.params) sanitize(req.params);
+    next();
+});
+
 app.use(morgan('dev')); // Logs API requests to your terminal
 
 // Rate Limiting (Protects against brute force and DDoS)
@@ -123,23 +137,34 @@ app.post('/api/auth/register', async (req, res) => {
         
         res.status(201).json({ success: true, token, user: { id: user._id, name: `${firstName} ${lastName}`, email, avatar: user.avatar } });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        console.error("Register Error:", error);
+        res.status(500).json({ success: false, message: "Server error during registration" });
     }
 });
 
 app.post('/api/auth/login', async (req, res) => {
     try {
         const { email, password } = req.body;
+        
+        // 1. Check if user exists
         const user = await User.findOne({ email });
-
-        if (user && (await bcrypt.compare(password, user.password))) {
-            const token = jwt.sign({ id: user._id, email: user.email }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
-            res.json({ success: true, token, user: { id: user._id, name: `${user.firstName} ${user.lastName}`, email, avatar: user.avatar } });
-        } else {
-            res.status(401).json({ success: false, message: 'Invalid credentials' });
+        if (!user) {
+            return res.status(401).json({ success: false, message: 'Invalid email or password' });
         }
+
+        // 2. Compare passwords
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(401).json({ success: false, message: 'Invalid email or password' });
+        }
+
+        // 3. Success
+        const token = jwt.sign({ id: user._id, email: user.email }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
+        res.json({ success: true, token, user: { id: user._id, name: `${user.firstName} ${user.lastName}`, email: user.email, avatar: user.avatar } });
+        
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        console.error("Login Error:", error);
+        res.status(500).json({ success: false, message: "Server error during login" });
     }
 });
 
@@ -217,5 +242,5 @@ app.post('/api/feedback', protect, async (req, res) => {
 // ==========================================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-    console.log(`🚀 TagME Backend running securely on http://localhost:${PORT}`);
+    console.log(`🚀 TagME Backend running securely on port ${PORT}`);
 });
