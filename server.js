@@ -97,10 +97,23 @@ const UserSchema = new mongoose.Schema({
 
 const User = mongoose.model('User', UserSchema);
 
+// --- NEW: CAMPAIGN MODEL ---
+const CampaignSchema = new mongoose.Schema({
+    author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    title: { type: String, required: true },
+    description: { type: String, required: true },
+    media: { type: String, default: null }, // URL to the image/video
+    location: { type: String, default: 'ea' },
+    budget: { type: Number, default: 0 },
+    likes: { type: Number, default: 0 },
+    comments: { type: Number, default: 0 }
+}, { timestamps: true });
+
+const Campaign = mongoose.model('Campaign', CampaignSchema);
+
 // ==========================================
 // 4. AUTHENTICATION GATEKEEPER (Middleware)
 // ==========================================
-// Any route that uses 'protect' will require a valid JWT to access
 const protect = (req, res, next) => {
     let token = req.headers.authorization;
     if (token && token.startsWith('Bearer')) {
@@ -146,19 +159,16 @@ app.post('/api/auth/login', async (req, res) => {
     try {
         const { email, password } = req.body;
         
-        // 1. Check if user exists
         const user = await User.findOne({ email });
         if (!user) {
             return res.status(401).json({ success: false, message: 'Invalid email or password' });
         }
 
-        // 2. Compare passwords
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
             return res.status(401).json({ success: false, message: 'Invalid email or password' });
         }
 
-        // 3. Success
         const token = jwt.sign({ id: user._id, email: user.email }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
         res.json({ success: true, token, user: { id: user._id, name: `${user.firstName} ${user.lastName}`, email: user.email, avatar: user.avatar } });
         
@@ -169,7 +179,6 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // --- B. PROFILE ROUTES ---
-// Uses Multer 'upload.single' to handle profile picture changes
 app.put('/api/profile', protect, upload.single('avatar'), async (req, res) => {
     try {
         const updates = { bio: req.body.bio, firstName: req.body.firstName, lastName: req.body.lastName };
@@ -189,20 +198,44 @@ app.post('/api/ai/generate', protect, async (req, res) => {
         const adCopy = await aiHelper.generateAdCopy(product, audience, tone);
         res.json({ success: true, result: adCopy });
     } catch (error) {
+        console.error("AI Error:", error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
 
 // --- D. CONTENT & POSTING (CAMPAIGNS) ---
-// Uploading a new Ad with an image/video
 app.post('/api/campaigns', protect, upload.single('media'), async (req, res) => {
-    // Here you will save to a Mongoose 'Ad' or 'Campaign' model later
-    const mediaPath = req.file ? `/uploads/${req.file.filename}` : null;
-    res.status(201).json({ success: true, message: 'Campaign Created', data: { ...req.body, media: mediaPath } });
+    try {
+        const mediaPath = req.file ? `/uploads/${req.file.filename}` : null;
+        
+        const newCampaign = await Campaign.create({
+            author: req.user.id,
+            title: req.body.title,
+            description: req.body.description,
+            location: req.body.location,
+            budget: req.body.budget,
+            media: mediaPath
+        });
+
+        res.status(201).json({ success: true, message: 'Campaign Created', campaign: newCampaign });
+    } catch (error) {
+        console.error("Campaign Post Error:", error);
+        res.status(500).json({ success: false, message: 'Failed to create campaign' });
+    }
 });
 
 app.get('/api/campaigns', protect, async (req, res) => {
-    res.json({ success: true, message: 'Fetching all user campaigns/drafts' });
+    try {
+        // Fetch campaigns and populate the author field to get their name and avatar
+        const campaigns = await Campaign.find()
+            .populate('author', 'firstName lastName avatar')
+            .sort({ createdAt: -1 }); // Newest first
+            
+        res.json({ success: true, campaigns });
+    } catch (error) {
+        console.error("Fetch Campaigns Error:", error);
+        res.status(500).json({ success: false, message: 'Failed to fetch campaigns' });
+    }
 });
 
 // --- E. MESSAGING (CHAT) ---
