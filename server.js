@@ -22,12 +22,18 @@ const app = express();
 connectDB();
 
 // ==========================================
-// ==========================================
 // 1. GLOBAL MIDDLEWARE & SECURITY
 // ==========================================
+// FIX: Explicitly name domains because 'credentials: true' forbids '*'
 app.use(cors({
-    origin: '*', 
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    origin: [
+        'https://tagme.buzz',
+        'https://www.tagme.buzz',
+        'http://localhost:5000',
+        'http://127.0.0.1:5000'
+    ], 
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
 }));
 
@@ -135,7 +141,7 @@ const OrderSchema = new mongoose.Schema({
     campaign: { type: mongoose.Schema.Types.ObjectId, ref: 'Campaign' },
     amount: { type: Number, required: true },
     status: { type: String, enum: ['pending', 'completed', 'failed'], default: 'pending' },
-    paymentMethod: { type: String, default: 'M-PESA' } // Prepared for East Africa!
+    paymentMethod: { type: String, default: 'M-PESA' } 
 }, { timestamps: true });
 const Order = mongoose.model('Order', OrderSchema);
 
@@ -180,7 +186,6 @@ app.post('/api/auth/register', async (req, res) => {
 
         const user = await User.create({ firstName, lastName, email, password: hashedPassword });
         
-        // Welcome Notification
         await Notification.create({ user: user._id, title: 'Welcome to TagME', body: 'Set up your profile to start creating campaigns!' });
 
         const token = jwt.sign({ id: user._id, email: user.email }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
@@ -259,7 +264,6 @@ app.get('/api/campaigns', protect, async (req, res) => {
 });
 
 // --- E. MESSAGING (CHAT) ---
-// Fetch all messages involving the current user
 app.get('/api/chat', protect, async (req, res) => {
     try {
         const messages = await Message.find({
@@ -272,7 +276,6 @@ app.get('/api/chat', protect, async (req, res) => {
     }
 });
 
-// Send a new message
 app.post('/api/chat/send', protect, async (req, res) => {
     try {
         const { recipientId, message } = req.body;
@@ -320,7 +323,6 @@ app.get('/api/billing', protect, async (req, res) => {
 
 // --- H. SETTINGS & FEEDBACK ---
 app.put('/api/settings', protect, async (req, res) => {
-    // Logic to update user settings (e.g. email preferences) would go here
     res.json({ success: true, message: 'Account settings updated securely' });
 });
 
