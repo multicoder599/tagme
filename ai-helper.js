@@ -1,43 +1,32 @@
-require('dotenv').config();
-
 const generateAdCopy = async (product, audience, tone) => {
     try {
-        console.log(`🤖 AI Request started for Product: ${product}`);
-        
-        // .trim() is the magic word here. It destroys any hidden spaces from your .env file!
-        const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : null;
-        
-        if (!apiKey) {
-            throw new Error("API Key is missing from .env");
-        }
+        console.log(`🤖 Local AI Request started for Product: ${product}`);
 
         const prompt = `Write a short, highly engaging advertisement for ${product} targeting ${audience}. The tone should be ${tone}. Keep it under 3 sentences.`;
 
-        // We use native 'fetch' to completely bypass the buggy SDK
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
-        
-        const response = await fetch(url, {
+        // We use native fetch to talk to YOUR local server on port 11434
+        const response = await fetch('http://127.0.0.1:11434/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }]
+                model: 'llama3.2', // The model we just downloaded
+                prompt: prompt,
+                stream: false // Get the whole response at once
             })
         });
 
         const data = await response.json();
 
-        // If Google rejects it, this will print the EXACT reason why
         if (!response.ok) {
-            console.error("❌ Google API Error details:", JSON.stringify(data, null, 2));
-            throw new Error(data.error?.message || "Google API returned an error");
+            console.error("❌ Ollama API Error:", data);
+            throw new Error("Local AI returned an error");
         }
 
-        const text = data.candidates[0].content.parts[0].text;
-        console.log("✅ AI Generation Successful!");
-        return text;
+        console.log("✅ Local AI Generation Successful!");
+        return data.response; // Ollama returns the text inside 'response'
 
     } catch (error) {
-        console.error("❌ GEMINI API ERROR ❌");
+        console.error("❌ LOCAL AI ERROR ❌");
         console.error(error.message);
         throw new Error("AI Generation Failed");
     }
