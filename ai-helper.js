@@ -1,68 +1,36 @@
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
-// Initialize the Gemini API with your secret key
+// 1. Verify the API Key is actually loaded
+if (!process.env.GEMINI_API_KEY) {
+    console.error("🚨 CRITICAL: GEMINI_API_KEY is missing from your .env file!");
+}
+
+// 2. Initialize Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// We use gemini-1.5-flash as it is blazing fast and perfect for text generation
-const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-
-// ---------------------------------------------------------
-// Function 1: Generate Ad Copy
-// ---------------------------------------------------------
-const generateAdCopy = async (productName, targetAudience, tone) => {
-    if (!process.env.GEMINI_API_KEY) {
-        throw new Error("Missing GEMINI_API_KEY in .env file");
-    }
-
-    const prompt = `You are an expert digital marketer for an East African ad network called TagME. 
-    Write a highly engaging social media ad campaign for the following:
-    
-    Product/Service: ${productName}
-    Target Audience: ${targetAudience}
-    Tone of Voice: ${tone}
-
-    Structure the output cleanly:
-    1. Give it a catchy headline (use emojis).
-    2. Write a compelling, concise body paragraph.
-    3. Include a strong Call to Action (CTA).
-    4. Add 3-5 relevant hashtags at the bottom.
-    
-    Do not use markdown formatting like ** or ## in the final output, keep it clean text.`;
-
+const generateAdCopy = async (product, audience, tone) => {
     try {
+        console.log(`🤖 AI Request started for Product: ${product}`);
+
+        // Using the most stable standard model. 
+        // If this fails, we will change it to 'gemini-pro'
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+        const prompt = `Write a short, highly engaging advertisement for ${product} targeting ${audience}. The tone should be ${tone}. Keep it under 3 sentences.`;
+        
         const result = await model.generateContent(prompt);
         const response = await result.response;
-        return response.text().trim();
+        const text = response.text();
+        
+        console.log("✅ AI Generation Successful!");
+        return text;
+
     } catch (error) {
-        console.error("Gemini AI Error:", error);
-        throw new Error("Failed to generate Ad Copy. Ensure your API key is valid.");
+        console.error("❌ GEMINI API ERROR ❌");
+        console.error(error.message);
+        throw new Error("AI Generation Failed");
     }
 };
 
-// ---------------------------------------------------------
-// Function 2: Generate SEO Keywords
-// ---------------------------------------------------------
-const generateKeywords = async (businessDescription) => {
-    if (!process.env.GEMINI_API_KEY) {
-        throw new Error("Missing GEMINI_API_KEY in .env file");
-    }
-
-    const prompt = `Based on the following business description, generate 10 highly effective SEO keywords and tags for targeting ads in East Africa. 
-    Format the output as a simple comma-separated list without bullet points or numbering.
-    Business: ${businessDescription}`;
-
-    try {
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        return response.text().trim();
-    } catch (error) {
-        console.error("Gemini AI Error:", error);
-        throw new Error("Failed to generate Keywords. Ensure your API key is valid.");
-    }
-};
-
-module.exports = {
-    generateAdCopy,
-    generateKeywords
-};
+module.exports = { generateAdCopy };
