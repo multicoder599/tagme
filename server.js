@@ -76,10 +76,9 @@ const upload = multer({
 });
 
 // ==========================================
-// 3. MONGOOSE MODELS (Upgraded)
+// 3. MONGOOSE MODELS
 // ==========================================
 
-// --- USER ---
 const UserSchema = new mongoose.Schema({
     firstName: { type: String, required: true },
     lastName: { type: String, required: true },
@@ -87,9 +86,7 @@ const UserSchema = new mongoose.Schema({
     password: { type: String, required: true },
     avatar: { type: String, default: null },
     bio: { type: String, default: '' },
-    // Fix #8: 24hr Free Logic Tracker
-    firstPostDate: { type: Date, default: null },
-    // Fix #13: Preferences Tracker
+    firstPostDate: { type: Date, default: null }, // 24hr Free Logic
     preferences: { 
         alerts: { type: Boolean, default: true },
         dms: { type: Boolean, default: true },
@@ -98,19 +95,16 @@ const UserSchema = new mongoose.Schema({
 }, { timestamps: true });
 const User = mongoose.model('User', UserSchema);
 
-// --- CAMPAIGN ---
 const CampaignSchema = new mongoose.Schema({
     author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     title: { type: String, required: true },
     description: { type: String, required: true },
-    // Fix #8: Multiple Images
-    media: { type: [String], default: [] },
+    media: { type: [String], default: [] }, // Array for multiple images
     location: { type: String, default: 'all-kenya' },
     budget: { type: Number, default: 0 },
-    // Fix #11: Scheduling & Status
-    status: { type: String, enum: ['published', 'draft', 'scheduled'], default: 'published' },
+    // Extended status to include 'review'
+    status: { type: String, enum: ['published', 'draft', 'scheduled', 'review'], default: 'review' },
     scheduledFor: { type: Date, default: null },
-    // Fix #6: Analytics Tracking
     views: { type: Number, default: 0 },
     likes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     comments: [{ 
@@ -121,7 +115,6 @@ const CampaignSchema = new mongoose.Schema({
 }, { timestamps: true });
 const Campaign = mongoose.model('Campaign', CampaignSchema);
 
-// --- MESSAGES ---
 const MessageSchema = new mongoose.Schema({
     sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     recipient: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -130,7 +123,6 @@ const MessageSchema = new mongoose.Schema({
 }, { timestamps: true });
 const Message = mongoose.model('Message', MessageSchema);
 
-// --- NOTIFICATIONS ---
 const NotificationSchema = new mongoose.Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     title: { type: String, required: true },
@@ -139,18 +131,16 @@ const NotificationSchema = new mongoose.Schema({
 }, { timestamps: true });
 const Notification = mongoose.model('Notification', NotificationSchema);
 
-// --- ORDERS (M-PESA Tracking) ---
 const OrderSchema = new mongoose.Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     campaign: { type: mongoose.Schema.Types.ObjectId, ref: 'Campaign' },
     amount: { type: Number, required: true },
-    isFree: { type: Boolean, default: false }, // Tracks the 24hr promo
+    isFree: { type: Boolean, default: false },
     status: { type: String, enum: ['pending', 'completed', 'failed'], default: 'completed' },
     paymentMethod: { type: String, default: 'M-PESA' } 
 }, { timestamps: true });
 const Order = mongoose.model('Order', OrderSchema);
 
-// --- FEEDBACK ---
 const FeedbackSchema = new mongoose.Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     type: { type: String, required: true },
@@ -217,7 +207,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// --- PROFILE & SETTINGS (Fix #13 & #14) ---
+// --- PROFILE & SETTINGS ---
 app.put('/api/profile', protect, upload.single('avatar'), async (req, res) => {
     try {
         const updates = { bio: req.body.bio, firstName: req.body.firstName, lastName: req.body.lastName };
@@ -232,7 +222,6 @@ app.put('/api/profile', protect, upload.single('avatar'), async (req, res) => {
 
 app.put('/api/users/preferences', protect, async (req, res) => {
     try {
-        // Find user, merge existing preferences with new toggles
         const user = await User.findById(req.user.id);
         const newPrefs = { ...user.preferences, ...req.body };
         await User.findByIdAndUpdate(req.user.id, { preferences: newPrefs });
@@ -264,7 +253,6 @@ app.delete('/api/users/delete', protect, async (req, res) => {
             return res.status(400).json({ success: false, message: 'Authentication failed. Incorrect password.' });
         }
         await User.findByIdAndDelete(req.user.id);
-        // Cascading deletes (campaigns/orders) could go here in production
         res.json({ success: true, message: 'Account deleted' });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Server error deleting account' });
@@ -287,7 +275,7 @@ app.post('/api/users/feedback', protect, upload.single('screenshot'), async (req
     }
 });
 
-// --- AI STUDIO (Fix #10) ---
+// --- AI STUDIO ---
 app.post('/api/ai/generate', protect, async (req, res) => {
     try {
         const { product, audience, tone, ageRange, gender } = req.body;
@@ -298,14 +286,13 @@ app.post('/api/ai/generate', protect, async (req, res) => {
     }
 });
 
-// --- CAMPAIGNS & SCHEDULING (Fix #8 & #11) ---
-
-// Helper function: Calculate 24hr Free Billing Logic
+// --- CAMPAIGNS & SCHEDULING ---
 const processBilling = async (userId, budget, campaignId) => {
     const user = await User.findById(userId);
     const now = new Date();
     let isFree = false;
 
+    // Trigger 24 Hour Free Logic based on FIRST post
     if (!user.firstPostDate) {
         user.firstPostDate = now;
         await user.save();
@@ -328,18 +315,35 @@ const processBilling = async (userId, budget, campaignId) => {
 app.post('/api/campaigns', protect, upload.array('media', 4), async (req, res) => {
     try {
         const mediaPaths = req.files ? req.files.map(file => `/uploads/${file.filename}`) : [];
+        const requestedStatus = req.body.status || 'review'; // Defaults to review from post.html
         
         const newCampaign = await Campaign.create({
             author: req.user.id,
             title: req.body.title,
             description: req.body.description,
-            location: req.body.location,
+            location: req.body.location || 'all-kenya',
             budget: req.body.budget,
             media: mediaPaths,
-            status: 'published'
+            status: requestedStatus
         });
 
+        // Process Billing
         await processBilling(req.user.id, req.body.budget, newCampaign._id);
+
+        // 5-MINUTE REVIEW DELAY LOGIC
+        // If the user requested to publish (which sets status to 'review'), start the 5 min timer
+        if (requestedStatus === 'review') {
+            console.log(`[TagME] Campaign ${newCampaign._id} under review. Publishing in 5 mins.`);
+            setTimeout(async () => {
+                try {
+                    await Campaign.findByIdAndUpdate(newCampaign._id, { status: 'published' });
+                    console.log(`[TagME] Campaign ${newCampaign._id} successfully published after 5m review.`);
+                } catch(err) {
+                    console.error("Failed to auto-publish campaign after review:", err);
+                }
+            }, 5 * 60 * 1000); // 5 minutes in milliseconds
+        }
+
         res.status(201).json({ success: true, message: 'Campaign Created', campaign: newCampaign });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Failed to create campaign' });
@@ -350,14 +354,13 @@ app.post('/api/campaigns/schedule', protect, upload.array('media', 4), async (re
     try {
         const mediaPaths = req.files ? req.files.map(file => `/uploads/${file.filename}`) : [];
         
-        // Combine date and time into a single Date object
         const scheduledDateStr = `${req.body.scheduleDate}T${req.body.scheduleTime}`;
         
         const newCampaign = await Campaign.create({
             author: req.user.id,
             title: req.body.title,
             description: req.body.description,
-            location: req.body.location,
+            location: req.body.location || 'all-kenya',
             budget: req.body.budget,
             media: mediaPaths,
             status: 'scheduled',
@@ -379,6 +382,24 @@ app.get('/api/campaigns', protect, async (req, res) => {
         res.json({ success: true, campaigns });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Failed to fetch campaigns' });
+    }
+});
+
+// Added route for Deleting campaigns from content.html
+app.delete('/api/campaigns/:id', protect, async (req, res) => {
+    try {
+        const campaign = await Campaign.findById(req.params.id);
+        if(!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
+        
+        // Ensure only the author can delete it
+        if(campaign.author.toString() !== req.user.id) {
+            return res.status(403).json({ success: false, message: 'Not authorized to delete this campaign' });
+        }
+
+        await Campaign.findByIdAndDelete(req.params.id);
+        res.json({ success: true, message: 'Campaign deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Failed to delete campaign' });
     }
 });
 
