@@ -86,7 +86,7 @@ const UserSchema = new mongoose.Schema({
     password: { type: String, required: true },
     avatar: { type: String, default: null },
     bio: { type: String, default: '' },
-    firstPostDate: { type: Date, default: null }, // 24hr Free Logic
+    firstPostDate: { type: Date, default: null }, 
     preferences: { 
         alerts: { type: Boolean, default: true },
         dms: { type: Boolean, default: true },
@@ -99,10 +99,9 @@ const CampaignSchema = new mongoose.Schema({
     author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     title: { type: String, required: true },
     description: { type: String, required: true },
-    media: { type: [String], default: [] }, // Array for multiple images
+    media: { type: [String], default: [] }, 
     location: { type: String, default: 'all-kenya' },
     budget: { type: Number, default: 0 },
-    // Extended status to include 'review'
     status: { type: String, enum: ['published', 'draft', 'scheduled', 'review'], default: 'review' },
     scheduledFor: { type: Date, default: null },
     views: { type: Number, default: 0 },
@@ -213,7 +212,8 @@ app.put('/api/profile', protect, upload.single('avatar'), async (req, res) => {
         const updates = { bio: req.body.bio, firstName: req.body.firstName, lastName: req.body.lastName };
         if (req.file) updates.avatar = `/uploads/${req.file.filename}`; 
 
-        const updatedUser = await User.findByIdAndUpdate(req.user.id, updates, { new: true });
+        // FIX: Swapped '{ new: true }' to '{ returnDocument: 'after' }' to silence warnings and return updated data
+        const updatedUser = await User.findByIdAndUpdate(req.user.id, updates, { returnDocument: 'after', runValidators: true });
         res.json({ success: true, message: 'Profile updated', user: updatedUser });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -224,7 +224,9 @@ app.put('/api/users/preferences', protect, async (req, res) => {
     try {
         const user = await User.findById(req.user.id);
         const newPrefs = { ...user.preferences, ...req.body };
-        await User.findByIdAndUpdate(req.user.id, { preferences: newPrefs });
+        
+        // FIX: Swapped to returnDocument here as well
+        await User.findByIdAndUpdate(req.user.id, { preferences: newPrefs }, { returnDocument: 'after' });
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Failed to update preferences' });
@@ -292,7 +294,6 @@ const processBilling = async (userId, budget, campaignId) => {
     const now = new Date();
     let isFree = false;
 
-    // Trigger 24 Hour Free Logic based on FIRST post
     if (!user.firstPostDate) {
         user.firstPostDate = now;
         await user.save();
@@ -315,7 +316,7 @@ const processBilling = async (userId, budget, campaignId) => {
 app.post('/api/campaigns', protect, upload.array('media', 4), async (req, res) => {
     try {
         const mediaPaths = req.files ? req.files.map(file => `/uploads/${file.filename}`) : [];
-        const requestedStatus = req.body.status || 'review'; // Defaults to review from post.html
+        const requestedStatus = req.body.status || 'review'; 
         
         const newCampaign = await Campaign.create({
             author: req.user.id,
@@ -327,21 +328,18 @@ app.post('/api/campaigns', protect, upload.array('media', 4), async (req, res) =
             status: requestedStatus
         });
 
-        // Process Billing
         await processBilling(req.user.id, req.body.budget, newCampaign._id);
 
-        // 5-MINUTE REVIEW DELAY LOGIC
-        // If the user requested to publish (which sets status to 'review'), start the 5 min timer
         if (requestedStatus === 'review') {
             console.log(`[TagME] Campaign ${newCampaign._id} under review. Publishing in 5 mins.`);
             setTimeout(async () => {
                 try {
-                    await Campaign.findByIdAndUpdate(newCampaign._id, { status: 'published' });
+                    await Campaign.findByIdAndUpdate(newCampaign._id, { status: 'published' }, { returnDocument: 'after' });
                     console.log(`[TagME] Campaign ${newCampaign._id} successfully published after 5m review.`);
                 } catch(err) {
                     console.error("Failed to auto-publish campaign after review:", err);
                 }
-            }, 5 * 60 * 1000); // 5 minutes in milliseconds
+            }, 5 * 60 * 1000); 
         }
 
         res.status(201).json({ success: true, message: 'Campaign Created', campaign: newCampaign });
@@ -385,13 +383,11 @@ app.get('/api/campaigns', protect, async (req, res) => {
     }
 });
 
-// Added route for Deleting campaigns from content.html
 app.delete('/api/campaigns/:id', protect, async (req, res) => {
     try {
         const campaign = await Campaign.findById(req.params.id);
         if(!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
         
-        // Ensure only the author can delete it
         if(campaign.author.toString() !== req.user.id) {
             return res.status(403).json({ success: false, message: 'Not authorized to delete this campaign' });
         }
